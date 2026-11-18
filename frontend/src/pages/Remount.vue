@@ -11,9 +11,11 @@ const result = ref(null)
 const edges = ref([])
 const proof = ref(null)
 const proofId = ref(null)
+const listCert = ref(null)
 
 async function loadEdges() {
   edges.value = await api.remounts()
+  listCert.value = await api.remountListRetirement()
 }
 
 async function submit() {
@@ -82,6 +84,32 @@ onMounted(loadEdges)
         <dt>新轴</dt><dd class="mono">{{ result.new_axis.join(' → ') }}</dd>
       </dl>
     </div>
+
+    <h2 style="margin-top:28px">列表退役核证</h2>
+    <p class="lead">
+      只读核验：每条迁移边的源键已从对外有效运单列表 / 检索入口消失，目标键承接。
+    </p>
+    <p v-if="listCert" :class="listCert.ok ? 'muted' : 'remount-err'">
+      {{ listCert.ok ? '核证通过：源键均已退役，列表与检索不再列出。' : '核证失败：仍有源键出现在有效列表 / 检索中。' }}
+    </p>
+    <table class="table" v-if="listCert">
+      <thead>
+        <tr><th>边</th><th>源键</th><th>目标键</th><th>退役标记</th><th>在有效列表</th><th>在检索</th><th>目标在列表</th><th>核证</th></tr>
+      </thead>
+      <tbody>
+        <tr v-for="c in listCert.edges" :key="c.edge_id">
+          <td>{{ c.edge_id }}</td>
+          <td>{{ c.old_key }}</td>
+          <td>{{ c.new_key }}</td>
+          <td>{{ c.old_key_retired ? '是' : '否' }}</td>
+          <td>{{ c.old_key_in_active_list ? '是（违规）' : '否' }}</td>
+          <td>{{ c.old_key_in_search ? '是（违规）' : '否' }}</td>
+          <td>{{ c.new_key_in_active_list ? '是' : '否（违规）' }}</td>
+          <td>{{ c.ok ? '通过' : '失败' }}</td>
+        </tr>
+        <tr v-if="!listCert.edges.length"><td colspan="8" class="muted">暂无迁移边</td></tr>
+      </tbody>
+    </table>
 
     <h2 style="margin-top:28px">迁移边审计</h2>
     <table class="table">

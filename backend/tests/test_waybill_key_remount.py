@@ -284,3 +284,121 @@ def test_http_conflict_returns_409_and_rolls_back(remount_db, monkeypatch):
         assert tl.status_code == 200
         assert [h["id"] for h in tl.json()["hops"]] == EXPECTED_AXIS
         assert client.get("/api/remounts").json() == []
+
+
+# ---------------------------------------------------------------- 列表退役核证
+
+def test_list_and_search_retire_source_key(remount_db, monkeypatch):
+    """换键后：对外有效列表与检索都不含源键，目标键承接。"""
+    from app import seed as seed_mod
+    from app.db import connect as _connect
+
+    monkeypatch.setattr(seed_mod, "connect", _connect)
+    with TestClient(app) as client:
+        assert client.post("/api/remount", json={"old_key": OLD, "new_key": NEW}).status_code == 200
+
+        ids = [w["id"] for w in client.get("/api/waybills").json()]
+        assert OLD not in ids and NEW in ids
+
+        # 检索入口同样不得命中源键
+        assert client.get("/api/waybills", params={"q": OLD}).json() == []
+        assert [w["id"] for w in client.get("/api/waybills", params={"q": NEW}).json()] == [NEW]
+
+        # 源键入口不得进有效轴查询
+        assert client.get(f"/api/waybills/{OLD}/timeline").status_code == 410
+
+        # 新增的列表退役核证只读接口
+        cert = client.get("/api/remounts/list-retirement")
+        assert cert.status_code == 200
+        body = cert.json()
+        assert body["ok"] is True
+        assert len(body["edges"]) == 1
+        check = body["edges"][0]
+        assert check["old_key"] == OLD and check["new_key"] == NEW
+        assert check["old_key_retired"] is True
+        assert check["old_key_in_active_list"] is False
+        assert check["old_key_in_search"] is False
+        assert check["new_key_in_active_list"] is True
+        assert OLD not in body["active_waybill_ids"] and NEW in body["active_waybill_ids"]
+
+
+def test_list_retirement_cert_detects_flag_leak(remount_db):
+    """核证接口核的是「退役标记 + 列表实际口径」双条件，任一不符即 ok=false。"""
+    from app.modules.waybill_key_remount import list_retirement_proofs
+
+    conn = connect()
+    remount_waybill_key(conn, OLD, NEW)
+    assert list_retirement_proofs(conn)["ok"] is True
+
+    # 模拟「迁移边已写而运单行退役标记丢了」的坏状态
+    conn.execute("UPDATE waybills SET retired=0 WHERE id=?", (OLD,))
+    conn.commit()
+    leaked = list_retirement_proofs(conn)
+    assert leaked["ok"] is False
+    assert leaked["edges"][0]["old_key_retired"] is False
+    # 列表口径另有边表兜底：即便标记滞后，源键也不会被列出
+    assert leaked["edges"][0]["old_key_in_active_list"] is False
+    conn.close()
+
+
+def test_retire_flag_missing_still_hides_source(remount_db):
+    """边已写而 retired 标记滞后：列表/检索/竖轴仍不得把源键当有效运单。"""
+    from app.modules.waybill_key_remount import (
+        guard_axis_served,
+        query_active_waybills,
+        resolve_active_key,
+    )
+
+    conn = connect()
+    remount_waybill_key(conn, OLD, NEW)
+    # 人为回退 retired 标记，模拟旧版本写坏的库
+    conn.execute("UPDATE waybills SET retired=0, remounted_to=NULL WHERE id=?", (OLD,))
+    conn.commit()
+
+    assert OLD not in [w["id"] for w in query_active_waybills(conn)]
+    assert OLD not in [w["id"] for w in query_active_waybills(conn, q=OLD)]
+    assert guard_axis_served(conn, OLD)["status"] == 410
+    assert resolve_active_key(conn, OLD) == NEW
+    conn.close()
+
+
+def test_gate_rolls_back_when_source_not_marked_retired(remount_db):
+    """列表退役闸门：源键退役标记缺失时整笔重挂回滚，旧键列表状态不变。"""
+    real_conn = connect()
+    before = _snapshot(real_conn)
+
+    class LeakyListConn:
+        """连接代理：在 retire UPDATE 后把 retired 抹回 0，模拟列表退役失效。"""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self._tripped = False
+
+        def execute(self, sql, params=()):
+            res = self._inner.execute(sql, params)
+            if (
+                not self._tripped
+                and sql.strip().startswith("UPDATE waybills SET status_proj=?")
+                and params and params[0] == RETIRED_PROJ
+            ):
+                self._tripped = True
+                self._inner.execute(
+                    "UPDATE waybills SET retired=0 WHERE id=?", (params[2],)
+                )
+            return res
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    conn = LeakyListConn(real_conn)
+    with pytest.raises(RemountError):
+        remount_waybill_key(conn, OLD, NEW)
+    real_conn.close()
+
+    conn = connect()
+    after = _snapshot(conn)
+    assert after == before
+    assert _axis_ids(conn, OLD) == EXPECTED_AXIS
+    # 回滚后回到迁移前的列表形态：旧键仍有效、新键仍为空壳
+    assert [w["id"] for w in list_active_waybills(conn)] == [NEW, OLD]
+    conn.close()

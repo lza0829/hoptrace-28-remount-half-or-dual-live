@@ -8,13 +8,26 @@ const detail = ref(null)
 const overview = ref(null)
 const err = ref('')
 const gone = ref(null)
+const keyword = ref('')
 
 async function loadList() {
   overview.value = await api.overview()
-  waybills.value = await api.waybills()
+  // 列表与检索共用同一「有效运单」口径：源键退役后不会出现。
+  waybills.value = await api.waybills(keyword.value.trim() || undefined)
+  if (selected.value && !waybills.value.some((w) => w.id === selected.value)) {
+    selected.value = waybills.value.length ? waybills.value[0].id : null
+    detail.value = null
+  }
   if (!selected.value && waybills.value.length) {
     selected.value = waybills.value[0].id
   }
+}
+
+async function search() {
+  selected.value = null
+  detail.value = null
+  gone.value = null
+  await loadList()
 }
 
 async function loadDetail(id) {
@@ -73,6 +86,10 @@ const proof = computed(() => detail.value?.proof)
     <div class="tri">
       <aside class="pane waybill-pane">
         <h2>运单索引</h2>
+        <form class="wb-search" @submit.prevent="search">
+          <input v-model="keyword" placeholder="按运单号 / 标题检索" />
+          <button class="btn btn-mini" type="submit">检索</button>
+        </form>
         <button
           v-for="w in waybills"
           :key="w.id"
@@ -84,6 +101,7 @@ const proof = computed(() => detail.value?.proof)
           <span class="title">{{ w.title }}</span>
           <span class="st">{{ w.status_proj }}</span>
         </button>
+        <p v-if="!waybills.length" class="muted">无有效运单</p>
       </aside>
 
       <section class="pane axis-pane">

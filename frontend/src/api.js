@@ -13,7 +13,8 @@ async function req(path, opts = {}) {
 export const api = {
   health: () => req('/api/health'),
   overview: () => req('/api/overview'),
-  waybills: () => req('/api/waybills'),
+  waybills: (q) =>
+    req(q ? `/api/waybills?q=${encodeURIComponent(q)}` : '/api/waybills'),
   timeline: (id) => req(`/api/waybills/${encodeURIComponent(id)}/timeline`),
   quarantine: () => req('/api/quarantine'),
   sidecar: () => req('/api/sidecar'),
@@ -26,5 +27,6 @@ export const api = {
       body: JSON.stringify({ old_key: oldKey, new_key: newKey, new_title: newTitle || null }),
     }),
   remounts: () => req('/api/remounts'),
+  remountListRetirement: () => req('/api/remounts/list-retirement'),
   remountProof: (edgeId) => req(`/api/remounts/${encodeURIComponent(edgeId)}/proof`),
 }

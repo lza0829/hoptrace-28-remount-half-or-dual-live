@@ -38,11 +38,14 @@ npm run dev
 - **落库形态**：独立不可变迁移边表 `waybill_key_remounts`（旧键、新键、迁入点数、移动行数、新旧投影、新旧全序快照、完成时刻）；`waybills` 行以 `retired / remounted_to` 与索引协同。
 - **失败闭**：同事务内「改点归属 → 重算新旧投影并写状态证明 → 写迁移边 → 提交前不变量闸门」，任一缺失或校验不过整体回滚。
 - **硬约束**：新键已有点（有投影）即 409 冲突；提交后旧键竖轴返回 410 且正式有效点为零；同一时刻只有新键对外提供有效轴；装载侧按旧键来的点经 `resolve_active_key` 改投承接键。
+- **列表退役**：源键提交后 `retired=1` 且 `remounted_to` 指向承接键；列表/检索只认 `query_active_waybills` 一个口径（`retired=0` 且不是任何迁移边源键），提交前闸门复核「源键已不在列表/检索、目标键承接」，否则整体回滚。
 
 | 接口 | 说明 |
 | --- | --- |
 | `POST /api/remount` | 同事务执行重挂，冲突/中途失败返回 409 并回滚 |
+| `GET /api/waybills` | 对外有效运单列表；`?q=` 为同一口径的检索，源键退役后不入列表/检索 |
 | `GET /api/remounts` | 迁移边审计列表 |
+| `GET /api/remounts/list-retirement` | 列表退役核证（只读）：逐条边核验源键已从有效列表/检索消失、目标键已承接；任一不符 `ok=false` |
 | `GET /api/remounts/{id}/proof` | 重挂证明只读接口（旧键、新键、迁入点数、新旧投影与全序） |
 | `GET /api/waybills/{id}/timeline` | 退休旧键返回 410，body 指向承接键与迁移边 |
 

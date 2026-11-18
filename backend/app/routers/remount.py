@@ -6,6 +6,7 @@ from app.modules.waybill_key_remount import (
     RemountError,
     get_proof,
     list_edges,
+    list_retirement_proofs,
     remount_waybill_key,
 )
 
@@ -37,6 +38,19 @@ def remount_edges():
     conn = connect()
     try:
         return list_edges(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/remounts/list-retirement")
+def remount_list_retirement():
+    """列表退役核证（只读）：逐条迁移边核验源键已从有效列表/检索消失。
+
+    与 ``/api/waybills`` 共用同一列表口径；任一源键仍可列出即 ``ok=false``。
+    """
+    conn = connect()
+    try:
+        return list_retirement_proofs(conn)
     finally:
         conn.close()
 

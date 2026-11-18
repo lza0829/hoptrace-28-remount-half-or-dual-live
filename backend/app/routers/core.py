@@ -31,15 +31,13 @@ def overview():
 
 
 @router.get("/waybills")
-def list_waybills():
+def list_waybills(q: str | None = None):
     conn = connect()
     try:
-        # 运单索引协同：退休旧键不再对外列出，新键承接全序。
-        rows = conn.execute(
-            "SELECT id, title, status_proj, created_at FROM waybills "
-            "WHERE COALESCE(retired,0)=0 ORDER BY id"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        # 运单索引 / 检索唯一口径：退休旧键不再对外列出，新键承接全序。
+        from app.modules.waybill_key_remount import query_active_waybills
+
+        return query_active_waybills(conn, q)
     finally:
         conn.close()
 

@@ -143,6 +143,20 @@ a { color: inherit; text-decoration: none; }
   font-size: 14px;
   letter-spacing: 0.12em;
 }
+.wb-search {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.wb-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+}
 .wb-item {
   display: block;
   width: 100%;
